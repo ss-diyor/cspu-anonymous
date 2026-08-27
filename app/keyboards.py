@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -107,7 +108,8 @@ def anonymous_comment_button(bot_username: str, comment_token: str) -> InlineKey
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✍️ Anonim javob yozish ↗",
+                    text="✍️ Anonim javob yozish",
+                    style=ButtonStyle.PRIMARY,
                     url=f"https://t.me/{username}?start=comment_{comment_token}",
                 )
             ]

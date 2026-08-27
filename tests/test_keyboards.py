@@ -5,6 +5,8 @@ def test_anonymous_comment_uses_opaque_deep_link() -> None:
     markup = anonymous_comment_button("@sample_bot", "Abcd_1234")
     button = markup.inline_keyboard[0][0]
     assert button.url == "https://t.me/sample_bot?start=comment_Abcd_1234"
+    assert button.text == "✍️ Anonim javob yozish"
+    assert button.style == "primary"
 
 
 def test_moderation_keyboard_callback_data_is_small() -> None:
