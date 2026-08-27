@@ -68,14 +68,14 @@ async def publish_submission(
     if submission.status == SubmissionStatus.PUBLISHED.value:
         return
     category = await session.get(Category, submission.category_id)
-    footer = f"{category.emoji} #{category.key} · #{submission.id}"
     message = await send_content(
         bot,
         settings.channel_id,
         content_type=submission.content_type,
         text=submission.text,
         file_id=submission.file_id,
-        footer=footer,
+        prefix=f"#{submission.id}",
+        footer=f"#{category.key}",
     )
     now = datetime.now(UTC)
     submission.status = SubmissionStatus.PUBLISHED.value
