@@ -155,7 +155,6 @@ async def publish_reply(
         content_type=reply.content_type,
         text=reply.text,
         file_id=reply.file_id,
-        prefix="<b>Anonim javob</b>",
         footer=f"#anonim_{reply.id}",
         reply_to_message_id=submission.discussion_message_id,
     )
