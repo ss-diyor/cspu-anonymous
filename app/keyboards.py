@@ -138,8 +138,9 @@ def admin_menu() -> InlineKeyboardMarkup:
     builder.button(text="🛡 So‘z filtrlari", callback_data="admin:filters")
     builder.button(text="🚫 Bloklanganlar", callback_data="admin:blocked")
     builder.button(text="📢 Kanal holati", callback_data="admin:channel")
+    builder.button(text="🧾 Audit jurnali", callback_data="admin:audit")
     builder.button(text="🏠 Asosiy menyu", callback_data="user:home")
-    builder.adjust(2, 2, 2, 1, 1)
+    builder.adjust(2, 2, 2, 1, 1, 1)
     return builder.as_markup()
 
 

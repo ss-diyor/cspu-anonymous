@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from html import escape
 
 from aiogram import F, Router
@@ -17,7 +18,15 @@ from app.keyboards import (
     moderators_menu,
     modes_menu,
 )
-from app.models import Admin, AnonymousReply, Category, Submission, SubmissionStatus, User
+from app.models import (
+    Admin,
+    AnonymousReply,
+    AuditLog,
+    Category,
+    Submission,
+    SubmissionStatus,
+    User,
+)
 from app.services.store import (
     audit,
     get_setting,
@@ -108,16 +117,70 @@ async def stats(
             await db.scalar(select(func.count()).select_from(User).where(User.is_banned.is_(True)))
             or 0
         )
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        today = (
+            await db.scalar(
+                select(func.count())
+                .select_from(Submission)
+                .where(Submission.created_at >= today_start)
+            )
+            or 0
+        )
+        category_rows = (
+            await db.execute(
+                select(Category.emoji, Category.title, func.count(Submission.id))
+                .join(Submission, Submission.category_id == Category.id)
+                .group_by(Category.id, Category.emoji, Category.title)
+                .order_by(func.count(Submission.id).desc())
+                .limit(5)
+            )
+        ).all()
+        moderator_rows = (
+            await db.execute(
+                select(AuditLog.actor_id, func.count(AuditLog.id))
+                .where(
+                    AuditLog.actor_id.is_not(None),
+                    AuditLog.action.in_(("submission.published", "submission.rejected")),
+                )
+                .group_by(AuditLog.actor_id)
+                .order_by(func.count(AuditLog.id).desc())
+                .limit(5)
+            )
+        ).all()
+        reviewed_rows = (
+            await db.execute(
+                select(Submission.created_at, Submission.reviewed_at)
+                .where(Submission.reviewed_at.is_not(None))
+                .order_by(Submission.reviewed_at.desc())
+                .limit(1000)
+            )
+        ).all()
+        durations = [
+            (reviewed_at - created_at).total_seconds()
+            for created_at, reviewed_at in reviewed_rows
+            if reviewed_at and created_at
+        ]
+        average_minutes = sum(durations) / len(durations) / 60 if durations else 0
     text = (
         "<b>📊 Statistika</b>\n\n"
         f"Foydalanuvchilar: <b>{total_users}</b>\n"
         f"Jami xabarlar: <b>{total_submissions}</b>\n"
+        f"Bugun kelgan: <b>{today}</b>\n"
         f"• Kutilmoqda: {pending}\n"
         f"• E’lon qilindi: {published}\n"
         f"• Rad etildi: {rejected}\n"
         f"Anonim kommentlar: <b>{total_replies}</b>\n"
-        f"Bloklanganlar: <b>{banned}</b>"
+        f"Bloklanganlar: <b>{banned}</b>\n"
+        f"O‘rtacha ko‘rib chiqish: <b>{average_minutes:.1f} daqiqa</b>"
     )
+    if category_rows:
+        text += "\n\n<b>Faol kategoriyalar</b>\n" + "\n".join(
+            f"{emoji} {escape(title)}: {count}" for emoji, title, count in category_rows
+        )
+    if moderator_rows:
+        text += "\n\n<b>Moderatorlar faoliyati</b>\n" + "\n".join(
+            f"<code>{actor_id}</code>: {count}" for actor_id, count in moderator_rows
+        )
     await callback.message.edit_text(text, reply_markup=admin_menu())
     await callback.answer()
 
@@ -406,4 +469,33 @@ async def channel_status(
         "Chat ID lar xavfsizlik sabab Railway environment variables orqali o‘zgartiriladi."
     )
     await callback.message.edit_text(text, reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:audit")
+async def audit_log(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    async with session_factory() as db:
+        if not await is_superadmin(db, settings, callback.from_user.id):
+            await callback.answer("Audit jurnali faqat superadmin uchun.", show_alert=True)
+            return
+        rows = list(
+            (
+                await db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(20))
+            ).all()
+        )
+    lines = ["<b>Oxirgi 20 ta audit hodisasi</b>", ""]
+    for item in rows:
+        actor = str(item.actor_id) if item.actor_id else "system"
+        target = f" {item.target_type}:{item.target_id}" if item.target_type else ""
+        lines.append(
+            f"<code>{item.created_at:%m-%d %H:%M}</code> · "
+            f"{escape(item.action)} · <code>{actor}</code>{escape(target)}"
+        )
+    if not rows:
+        lines.append("Jurnal hozircha bo‘sh.")
+    await callback.message.edit_text("\n".join(lines), reply_markup=admin_menu())
     await callback.answer()
