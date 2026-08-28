@@ -14,6 +14,9 @@ from app.config import Settings
 from app.keyboards import (
     category_menu,
     comment_preview,
+    confirm_data_deletion,
+    confirm_filter_change,
+    history_menu,
     inquiry_answer_button,
     main_menu,
     submission_preview,
@@ -30,8 +33,9 @@ from app.models import (
 )
 from app.security import (
     content_fingerprint,
+    inspect_content,
     make_token,
-    requires_review,
+    parse_banned_words,
     user_is_banned,
 )
 from app.services.content import extract_content, send_content, validate_content
@@ -43,6 +47,7 @@ from app.services.publishing import (
     send_reply_to_moderation,
     send_submission_to_moderation,
 )
+from app.services.retention import erase_user_data
 from app.services.store import (
     audit,
     clear_session,
@@ -52,7 +57,6 @@ from app.services.store import (
     is_admin,
     is_superadmin,
     set_session,
-    set_setting,
 )
 
 router = Router(name="user")
@@ -70,7 +74,10 @@ PRIVACY = (
     "• Xabarlar kanalga bot nomidan yuboriladi; Telegram forward ishlatilmaydi.\n"
     "• Bot ishlashi va javobni sizga yetkazishi uchun Telegram ID texnik ravishda "
     "saqlanadi, ammo moderatorlarga ko‘rsatilmaydi.\n"
-    "• Suiiste’mol holatida anonim identifikator bloklanishi mumkin."
+    "• Suiiste’mol holatida anonim identifikator vaqtincha yoki doimiy bloklanishi mumkin.\n"
+    "• Rad etilgan kontent odatda 30 kun, muallif bog‘lanishi 90 kungacha saqlanadi.\n"
+    "• Menyudan bazadagi ma’lumotlaringizni o‘chirishingiz mumkin; avval kanalga "
+    "chiqqan xabarlar Telegram’dan avtomatik o‘chmaydi."
 )
 
 
@@ -93,6 +100,17 @@ def _rate_limited(last_action_at: datetime | None, seconds: int) -> int:
         last_action_at = last_action_at.replace(tzinfo=UTC)
     remaining = seconds - int((datetime.now(UTC) - last_action_at).total_seconds())
     return max(0, remaining)
+
+
+def _review_flags(text: str | None, banned_words: list[str], content_type: str) -> dict:
+    result = inspect_content(text, banned_words)
+    reasons = list(result.reasons)
+    if content_type == "document":
+        reasons.append("document")
+    return {
+        "reasons": list(dict.fromkeys(reasons)),
+        "matched_words": list(result.matched_words),
+    }
 
 
 async def _route_deep_link(
@@ -123,7 +141,7 @@ async def _route_deep_link(
         )
         await message.answer(
             f"✍️ <b>#{submission.id}-postga anonim javob</b>\n\n"
-            "Matn, rasm, video, hujjat, ovozli xabar yoki animatsiya yuboring. "
+            "Matn, rasm, video, PDF, ovozli xabar yoki animatsiya yuboring. "
             "Jarayon 30 daqiqa davomida faol."
         )
         return True
@@ -163,6 +181,9 @@ async def _route_deep_link(
         submission = await db.scalar(select(Submission).where(Submission.token == token))
         if not submission or submission.status != SubmissionStatus.PENDING.value:
             await message.answer("Xabar topilmadi yoki allaqachon ko‘rib chiqilgan.")
+            return True
+        if action == "ask" and submission.user_id is None:
+            await message.answer("Muallif ma’lumoti o‘chirilgan; savol yuborib bo‘lmaydi.")
             return True
         state = "awaiting_admin_edit" if action == "edit" else "awaiting_admin_question"
         await set_session(
@@ -233,6 +254,68 @@ async def privacy(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "user:delete_data")
+async def delete_data_prompt(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "<b>Ma’lumotlarni o‘chirish</b>\n\n"
+        "Bot bazasidagi Telegram ID, yuborilgan kontent va tarix muallifdan uziladi. "
+        "Kanalda avval e’lon qilingan post va kommentlar Telegram kanalidan "
+        "avtomatik o‘chmaydi. Davom etasizmi?",
+        reply_markup=confirm_data_deletion(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "user:delete_data_confirm")
+async def delete_data_confirm(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    async with session_factory() as db, db.begin():
+        submission_message_ids = list(
+            (
+                await db.scalars(
+                    select(Submission.moderation_message_id).where(
+                        Submission.user_id == callback.from_user.id,
+                        Submission.moderation_message_id.is_not(None),
+                    )
+                )
+            ).all()
+        )
+        reply_message_ids = list(
+            (
+                await db.scalars(
+                    select(AnonymousReply.moderation_message_id).where(
+                        AnonymousReply.user_id == callback.from_user.id,
+                        AnonymousReply.moderation_message_id.is_not(None),
+                    )
+                )
+            ).all()
+        )
+        counts = await erase_user_data(db, callback.from_user.id)
+        await audit(
+            db,
+            None,
+            "user.data_erased",
+            "anonymous_user",
+            None,
+            counts,
+        )
+    for message_id in submission_message_ids + reply_message_ids:
+        try:
+            await bot.delete_message(settings.moderation_chat_id, message_id)
+        except TelegramBadRequest:
+            continue
+    await callback.message.edit_text(
+        "✅ Bot bazasidagi shaxsiy bog‘lanishlar va saqlangan kontent o‘chirildi. "
+        "Botdan yana foydalansangiz yangi anonim profil yaratiladi.",
+        reply_markup=main_menu(),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "user:new")
 async def new_submission(
     callback: CallbackQuery,
@@ -283,7 +366,7 @@ async def select_category(
         )
     await callback.message.edit_text(
         f"{category.emoji} <b>{category.title}</b>\n\n"
-        "Xabaringizni yuboring. Matn, rasm, video, hujjat, ovozli xabar yoki "
+        "Xabaringizni yuboring. Matn, rasm, video, PDF, ovozli xabar yoki "
         "animatsiya qabul qilinadi.\n\nBekor qilish: /cancel"
     )
     await callback.answer()
@@ -382,9 +465,14 @@ async def submit_draft(
         user.last_action_at = datetime.now(UTC)
         await db.flush()
         mode = await get_setting(db, "post_moderation_mode", "manual")
-        banned_words = (await get_setting(db, "banned_words", "")).split(",")
-        should_review = mode == "manual" or (
-            mode == "hybrid" and requires_review(submission.text, banned_words)
+        banned_words = parse_banned_words(await get_setting(db, "banned_words", ""))
+        submission.review_flags = _review_flags(
+            submission.text, banned_words, submission.content_type
+        )
+        should_review = (
+            mode == "manual"
+            or bool(submission.review_flags["reasons"] or submission.review_flags["matched_words"])
+            or (mode == "hybrid" and submission.content_type != "text")
         )
         if should_review:
             await send_submission_to_moderation(db, bot, settings, submission)
@@ -464,9 +552,12 @@ async def submit_comment(
         user.last_action_at = datetime.now(UTC)
         await db.flush()
         mode = await get_setting(db, "reply_moderation_mode", "manual")
-        banned_words = (await get_setting(db, "banned_words", "")).split(",")
-        should_review = mode == "manual" or (
-            mode == "hybrid" and requires_review(reply.text, banned_words)
+        banned_words = parse_banned_words(await get_setting(db, "banned_words", ""))
+        reply.review_flags = _review_flags(reply.text, banned_words, reply.content_type)
+        should_review = (
+            mode == "manual"
+            or bool(reply.review_flags["reasons"] or reply.review_flags["matched_words"])
+            or (mode == "hybrid" and reply.content_type != "text")
         )
         if should_review:
             await send_reply_to_moderation(db, bot, settings, reply)
@@ -503,6 +594,7 @@ async def history(
         SubmissionStatus.PENDING.value: "⏳ Kutilmoqda",
         SubmissionStatus.PUBLISHED.value: "✅ E’lon qilindi",
         SubmissionStatus.REJECTED.value: "❌ Rad etildi",
+        SubmissionStatus.WITHDRAWN.value: "↩️ Bekor qilindi",
     }
     if not submissions:
         text = "Siz hali anonim xabar yubormagansiz."
@@ -514,7 +606,48 @@ async def history(
                 line += f" ({item.rejection_reason})"
             lines.append(line)
         text = "\n".join(lines)
-    await callback.message.edit_text(text, reply_markup=main_menu())
+    pending_ids = [item.id for item in submissions if item.status == SubmissionStatus.PENDING.value]
+    await callback.message.edit_text(text, reply_markup=history_menu(pending_ids))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("user:withdraw:"))
+async def withdraw_submission(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    submission_id = int(callback.data.rsplit(":", 1)[1])
+    moderation_message_id: int | None = None
+    async with session_factory() as db, db.begin():
+        submission = await db.get(Submission, submission_id, with_for_update=True)
+        if (
+            not submission
+            or submission.user_id != callback.from_user.id
+            or submission.status != SubmissionStatus.PENDING.value
+        ):
+            await callback.answer("Bu xabarni bekor qilib bo‘lmaydi.", show_alert=True)
+            return
+        submission.status = SubmissionStatus.WITHDRAWN.value
+        submission.rejection_reason = "Muallif bekor qildi"
+        submission.reviewed_at = datetime.now(UTC)
+        moderation_message_id = submission.moderation_message_id
+        await audit(db, None, "submission.withdrawn", "submission", submission.id)
+    if moderation_message_id:
+        try:
+            await bot.edit_message_reply_markup(
+                settings.moderation_chat_id,
+                moderation_message_id,
+                reply_markup=None,
+            )
+            await bot.send_message(
+                settings.moderation_chat_id,
+                f"↩️ #{submission_id} xabarini muallif bekor qildi.",
+            )
+        except TelegramBadRequest:
+            pass
+    await callback.message.edit_text("Xabar bekor qilindi.", reply_markup=main_menu())
     await callback.answer()
 
 
@@ -547,21 +680,29 @@ async def private_input(
             payload = dict(current.payload)
             payload.update(content)
             is_submission = current.state == "awaiting_submission"
+            try:
+                preview_message = await send_content(
+                    bot,
+                    message.chat.id,
+                    content_type=content["content_type"],
+                    text=content.get("text"),
+                    file_id=content.get("file_id"),
+                    prefix="<b>Oldindan ko‘rish</b>",
+                    reply_markup=submission_preview() if is_submission else comment_preview(),
+                )
+            except ValueError as exc:
+                await message.answer(str(exc))
+                return
+            if content["content_type"] == "document" and preview_message.document:
+                payload["file_id"] = preview_message.document.file_id
+                payload["file_unique_id"] = preview_message.document.file_unique_id
+                payload["file_name"] = "anonim_hujjat.pdf"
             await set_session(
                 db,
                 message.from_user.id,
                 "preview_submission" if is_submission else "preview_comment",
                 payload,
                 settings.session_ttl_minutes,
-            )
-            await send_content(
-                bot,
-                message.chat.id,
-                content_type=content["content_type"],
-                text=content.get("text"),
-                file_id=content.get("file_id"),
-                prefix="<b>Oldindan ko‘rish</b>",
-                reply_markup=submission_preview() if is_submission else comment_preview(),
             )
             return
 
@@ -591,6 +732,10 @@ async def private_input(
                 except TelegramBadRequest:
                     pass
             submission.text = message.text
+            banned_words = parse_banned_words(await get_setting(db, "banned_words", ""))
+            submission.review_flags = _review_flags(
+                submission.text, banned_words, submission.content_type
+            )
             await send_submission_to_moderation(db, bot, settings, submission)
             await audit(
                 db,
@@ -671,31 +816,56 @@ async def private_input(
             if not await is_superadmin(db, settings, message.from_user.id):
                 await clear_session(db, message.from_user.id)
                 return
-            if not message.text or not message.text.strip().lstrip("-").isdigit():
-                await message.answer("Moderatorning raqamli Telegram ID sini yuboring.")
+            parts = message.text.split() if message.text else []
+            if not parts or not parts[0].lstrip("-").isdigit():
+                await message.answer(
+                    "Telegram ID va rolni yuboring: <code>123456 moderator</code> yoki "
+                    "<code>123456 senior_moderator</code>."
+                )
                 return
-            admin_id = int(message.text.strip())
+            admin_id = int(parts[0])
+            role = parts[1] if len(parts) > 1 else "moderator"
+            if role not in {"moderator", "senior_moderator"}:
+                await message.answer("Rol moderator yoki senior_moderator bo‘lishi kerak.")
+                return
             existing = await db.get(Admin, admin_id)
             if existing:
                 await message.answer("Bu foydalanuvchi allaqachon moderator.")
                 return
-            db.add(Admin(telegram_id=admin_id, role="moderator", added_by=message.from_user.id))
-            await audit(db, message.from_user.id, "admin.added", "admin", admin_id)
+            db.add(Admin(telegram_id=admin_id, role=role, added_by=message.from_user.id))
+            await audit(
+                db,
+                message.from_user.id,
+                "admin.added",
+                "admin",
+                admin_id,
+                {"role": role},
+            )
             await clear_session(db, message.from_user.id)
-            await message.answer(f"✅ {admin_id} moderator sifatida qo‘shildi.")
+            await message.answer(f"✅ {admin_id} {role} sifatida qo‘shildi.")
             return
 
         if current.state == "awaiting_banned_words":
-            if not await is_admin(db, settings, message.from_user.id) or not message.text:
+            if not await is_superadmin(db, settings, message.from_user.id) or not message.text:
                 await message.answer("Ro‘yxatni matn ko‘rinishida yuboring.")
                 return
-            value = "" if message.text.strip() == "-" else message.text.strip()
+            words = [] if message.text.strip() == "-" else parse_banned_words(message.text)
+            value = ", ".join(words)
             if len(value) > 2000:
                 await message.answer("Ro‘yxat 2000 belgidan oshmasligi kerak.")
                 return
-            await set_setting(db, "banned_words", value, message.from_user.id)
-            await clear_session(db, message.from_user.id)
-            await message.answer("✅ So‘z filtri yangilandi.")
+            await set_session(
+                db,
+                message.from_user.id,
+                "confirm_banned_words",
+                {"value": value},
+                settings.session_ttl_minutes,
+            )
+            shown = escape(value) if value else "ro‘yxatni tozalash"
+            await message.answer(
+                f"Quyidagi filtr o‘zgarishini tasdiqlaysizmi?\n\n{shown}",
+                reply_markup=confirm_filter_change(),
+            )
             return
 
         await message.answer("Jarayon holati noma’lum. /cancel buyrug‘i bilan bekor qiling.")

@@ -9,7 +9,7 @@ def make_settings(**overrides):
         "CHANNEL_ID": -1001,
         "MODERATION_CHAT_ID": -1002,
         "DISCUSSION_CHAT_ID": -1003,
-        "WEBHOOK_SECRET": "safe_secret-123",
+        "WEBHOOK_SECRET": "safe_secret-1234567890-1234567890",
         "WEBHOOK_BASE_URL": "https://example.com/",
     }
     values.update(overrides)
@@ -30,3 +30,12 @@ def test_admin_ids_and_webhook_url() -> None:
 def test_single_admin_id_from_environment_shape() -> None:
     settings = make_settings(SUPERADMIN_IDS=12)
     assert settings.superadmin_ids == frozenset({12})
+
+
+def test_short_webhook_secret_is_rejected() -> None:
+    try:
+        make_settings(WEBHOOK_SECRET="short")
+    except ValueError as exc:
+        assert "32-256" in str(exc)
+    else:
+        raise AssertionError("Short webhook secret must be rejected")

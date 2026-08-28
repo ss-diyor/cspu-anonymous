@@ -1,6 +1,6 @@
 # Maxfiylik siyosati
 
-_So‘nggi yangilanish: 2026-yil 27-avgust_
+_So‘nggi yangilanish: 2026-yil 28-avgust_
 
 Ushbu bot foydalanuvchilarga Chirchiq davlat pedagogika universitetiga oid kanalga
 anonim xabar va anonim komment yuborish imkonini beradi.
@@ -35,11 +35,23 @@ boshqa maxfiy ma’lumotlarini ularning roziligisiz yubormasligi kerak.
 Haqorat, tahdid, spam, noqonuniy material yoki shaxsiy ma’lumot tarqatishga urinish rad
 etilishi mumkin. Takroriy qoidabuzarlikda anonim foydalanuvchi identifikatori bloklanadi.
 
+Jiddiy qoidabuzarliklar ogohlantirish ballariga olib keladi. Uchta qoidabuzarlikdan
+keyin 7 kunlik, beshtadan keyin doimiy avtomatik blok qo‘llanishi mumkin.
+
+## Saqlash muddati va o‘chirish
+
+Rad etilgan kontent odatda 30 kundan, muallif bilan texnik bog‘lanish esa 90 kundan
+keyin bazada avtomatik redakt qilinadi. Audit yozuvlari xavfsizlik tekshiruvi uchun 365
+kungacha saqlanadi. Aniq muddatlar Railway variables orqali qisqartirilishi mumkin.
+
+Foydalanuvchi bot menyusidagi “Ma’lumotlarimni o‘chirish” orqali bazadagi Telegram ID
+bog‘lanishini va saqlangan kontentni o‘chirishi mumkin. Kanal yoki discussion guruhida
+allaqachon e’lon qilingan xabarlar Telegram’dan avtomatik o‘chmaydi.
+
 ## Telegram haqida
 
 Anonimlik kanal obunachilari va moderatorlarga nisbatan ta’minlanadi. Telegram
 platformasi va botning texnik serveriga nisbatan mutlaq anonimlik kafolatlanmaydi.
 
-Ushbu matnda universitetning mas’ul bo‘limi, aloqa manzili va ma’lumotlarni saqlash
-muddati xizmat ishga tushishidan oldin rasmiy ravishda qo‘shilishi kerak.
-
+Universitetning mas’ul bo‘limi va rasmiy aloqa manzili xizmat ommaga e’lon qilinishidan
+oldin tashkilot tomonidan ushbu siyosatga qo‘shilishi kerak.

@@ -14,6 +14,27 @@ def main_menu() -> InlineKeyboardMarkup:
     builder.button(text="✍️ Anonim xabar yuborish", callback_data="user:new")
     builder.button(text="📋 Xabarlarim", callback_data="user:history")
     builder.button(text="ℹ️ Qoidalar va maxfiylik", callback_data="user:privacy")
+    builder.button(text="🗑 Ma’lumotlarimni o‘chirish", callback_data="user:delete_data")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def history_menu(pending_ids: Iterable[int]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for submission_id in pending_ids:
+        builder.button(
+            text=f"❌ #{submission_id} ni bekor qilish",
+            callback_data=f"user:withdraw:{submission_id}",
+        )
+    builder.button(text="⬅️ Asosiy menyu", callback_data="user:home")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def confirm_data_deletion() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗑 Ha, o‘chirish", callback_data="user:delete_data_confirm")
+    builder.button(text="Bekor qilish", callback_data="user:home")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -53,6 +74,7 @@ def moderation_submission(
 ) -> InlineKeyboardMarkup:
     username = bot_username.lstrip("@")
     builder = InlineKeyboardBuilder()
+    builder.button(text="🙋 Ko‘rib chiqishni olish", callback_data=f"sub:claim:{submission_id}")
     builder.button(text="✅ Tasdiqlash", callback_data=f"sub:approve:{submission_id}")
     builder.button(text="❌ Rad etish", callback_data=f"sub:reject:{submission_id}")
     builder.button(
@@ -64,7 +86,7 @@ def moderation_submission(
         url=f"https://t.me/{username}?start=ask_{token}",
     )
     builder.button(text="🚫 Bloklash", callback_data=f"sub:ban:{submission_id}")
-    builder.adjust(2, 2, 1)
+    builder.adjust(1, 2, 2, 1)
     return builder.as_markup()
 
 
@@ -85,20 +107,23 @@ def rejection_reasons(target: str, item_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def ban_confirmation(submission_id: int) -> InlineKeyboardMarkup:
+def ban_confirmation(target: str, item_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🚫 Ha, bloklash", callback_data=f"sub:ban_confirm:{submission_id}")
-    builder.button(text="⬅️ Bekor qilish", callback_data=f"sub:reject_back:{submission_id}")
+    builder.button(text="1 kun", callback_data=f"{target}:ban_confirm:{item_id}:1d")
+    builder.button(text="7 kun", callback_data=f"{target}:ban_confirm:{item_id}:7d")
+    builder.button(text="Doimiy", callback_data=f"{target}:ban_confirm:{item_id}:permanent")
+    builder.button(text="⬅️ Bekor qilish", callback_data=f"{target}:reject_back:{item_id}")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def moderation_reply(reply_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="🙋 Ko‘rib chiqishni olish", callback_data=f"reply:claim:{reply_id}")
     builder.button(text="✅ Tasdiqlash", callback_data=f"reply:approve:{reply_id}")
     builder.button(text="❌ Rad etish", callback_data=f"reply:reject:{reply_id}")
     builder.button(text="🚫 Bloklash", callback_data=f"reply:ban:{reply_id}")
-    builder.adjust(2, 1)
+    builder.adjust(1, 2, 1)
     return builder.as_markup()
 
 
@@ -158,6 +183,33 @@ def modes_menu(post_mode: str, reply_mode: str) -> InlineKeyboardMarkup:
         callback_data="admin:cycle_mode:reply",
     )
     builder.button(text="⬅️ Admin panel", callback_data="admin:home")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def confirm_mode_change(target: str, value: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Tasdiqlash",
+        callback_data=f"admin:confirm_mode:{target}:{value}",
+    )
+    builder.button(text="Bekor qilish", callback_data="admin:modes")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def confirm_category_change(category_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Tasdiqlash", callback_data=f"admin:confirm_category:{category_id}")
+    builder.button(text="Bekor qilish", callback_data="admin:categories")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def confirm_filter_change() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Tasdiqlash", callback_data="admin:confirm_filters")
+    builder.button(text="Bekor qilish", callback_data="admin:cancel_setting")
     builder.adjust(1)
     return builder.as_markup()
 

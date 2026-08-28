@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     rate_limit_seconds: int = 20
     session_ttl_minutes: int = 30
+    webhook_max_connections: int = Field(default=10, ge=1, le=100)
+    max_webhook_body_bytes: int = Field(default=1_000_000, ge=16_384, le=5_000_000)
+    user_update_limit: int = Field(default=30, ge=5, le=300)
+    global_update_limit: int = Field(default=600, ge=50, le=10_000)
+    rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
+    identity_retention_days: int = Field(default=90, ge=7, le=3650)
+    rejected_content_retention_days: int = Field(default=30, ge=1, le=3650)
+    audit_retention_days: int = Field(default=365, ge=30, le=3650)
+    processed_update_retention_days: int = Field(default=7, ge=1, le=90)
 
     @field_validator("superadmin_ids", mode="before")
     @classmethod
@@ -47,8 +56,10 @@ class Settings(BaseSettings):
     @classmethod
     def validate_webhook_secret(cls, value: str) -> str:
         allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-        if not 1 <= len(value) <= 256 or any(char not in allowed for char in value):
-            raise ValueError("WEBHOOK_SECRET may contain only A-Z, a-z, 0-9, _ and -")
+        if not 32 <= len(value) <= 256 or any(char not in allowed for char in value):
+            raise ValueError(
+                "WEBHOOK_SECRET must be 32-256 characters and contain only A-Z, a-z, 0-9, _ and -"
+            )
         return value
 
     @property

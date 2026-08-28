@@ -23,6 +23,10 @@ def main() -> None:
             "--port",
             str(port),
             "--proxy-headers",
+            "--limit-concurrency",
+            "100",
+            "--timeout-keep-alive",
+            "5",
         ]
     )
 

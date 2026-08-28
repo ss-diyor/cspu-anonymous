@@ -33,6 +33,7 @@ class SubmissionStatus(StrEnum):
     PENDING = "pending"
     PUBLISHED = "published"
     REJECTED = "rejected"
+    WITHDRAWN = "withdrawn"
 
 
 class InquiryStatus(StrEnum):
@@ -49,6 +50,7 @@ class User(Base):
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     banned_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ban_reason: Mapped[str | None] = mapped_column(String(500))
+    violation_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
@@ -85,7 +87,9 @@ class Submission(Base):
     id: Mapped[int] = mapped_column(PK, primary_key=True)
     token: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     comment_token: Mapped[str] = mapped_column(String(32), unique=True, index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.telegram_id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.telegram_id"), index=True, nullable=True
+    )
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
     content_type: Mapped[str] = mapped_column(String(20))
     text: Mapped[str | None] = mapped_column(Text)
@@ -98,11 +102,15 @@ class Submission(Base):
     discussion_message_id: Mapped[int | None] = mapped_column(BigInteger)
     reviewer_id: Mapped[int | None] = mapped_column(BigInteger)
     rejection_reason: Mapped[str | None] = mapped_column(String(500))
+    review_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    claimed_by: Mapped[int | None] = mapped_column(BigInteger)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    user: Mapped[User] = relationship(back_populates="submissions")
+    user: Mapped[User | None] = relationship(back_populates="submissions")
     category: Mapped[Category] = relationship(back_populates="submissions")
     anonymous_replies: Mapped[list[AnonymousReply]] = relationship(back_populates="submission")
 
@@ -115,7 +123,9 @@ class AnonymousReply(Base):
     id: Mapped[int] = mapped_column(PK, primary_key=True)
     token: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     submission_id: Mapped[int] = mapped_column(ForeignKey("submissions.id"), index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.telegram_id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.telegram_id"), index=True, nullable=True
+    )
     content_type: Mapped[str] = mapped_column(String(20))
     text: Mapped[str | None] = mapped_column(Text)
     file_id: Mapped[str | None] = mapped_column(String(512))
@@ -125,6 +135,10 @@ class AnonymousReply(Base):
     discussion_message_id: Mapped[int | None] = mapped_column(BigInteger)
     reviewer_id: Mapped[int | None] = mapped_column(BigInteger)
     rejection_reason: Mapped[str | None] = mapped_column(String(500))
+    review_flags: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    claimed_by: Mapped[int | None] = mapped_column(BigInteger)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -185,7 +199,24 @@ class ProcessedUpdate(Base):
     __tablename__ = "processed_updates"
 
     update_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    status: Mapped[str] = mapped_column(String(20), default="processing")
+    attempts: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_error: Mapped[str | None] = mapped_column(String(500))
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class RateLimitBucket(Base):
+    __tablename__ = "rate_limit_buckets"
+
+    key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, index=True
+    )
 
 
 class ContentFingerprint(Base):

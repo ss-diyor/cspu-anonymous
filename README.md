@@ -6,17 +6,19 @@ kanal postlariga anonim komment yuborish boti.
 ## Imkoniyatlar
 
 - kategoriya bilan anonim xabar yuborish;
-- matn, rasm, video, hujjat, voice va animation qabul qilish;
+- matn, rasm, video, xavfsiz PDF, voice va animation qabul qilish;
 - yuborishdan oldin preview va tasdiqlash;
 - moderator, avtomatik va gibrid nashr rejimlari;
-- moderator guruhida tasdiqlash, rad etish, tahrirlash va bloklash;
+- moderator guruhida navbatni olish, tasdiqlash, rad etish, tahrirlash va bloklash;
 - moderatorning anonim muallif bilan bot orqali savol-javobi;
 - kanal postining discussion kommentiga `Anonim javob yozish` deep-link tugmasi;
 - anonim kommentlar uchun alohida moderatsiya rejimi;
 - xabar holati, statistika, kategoriyalar, moderatorlar va bloklanganlar paneli;
-- rate limit, 24 soatlik takroriy-xabar himoyasi va taqiqlangan so‘zlar filtri;
+- per-user/global rate limit, 24 soatlik takroriy-xabar himoyasi va kuchaytirilgan filtr;
 - audit jurnali va PostgreSQL’da saqlanadigan foydalanuvchi jarayonlari;
-- Telegram webhook maxfiy tokeni, Docker va Railway health-check.
+- webhook idempotency, hajm/concurrency chegarasi, retention va ma’lumotni o‘chirish;
+- moderator/senior moderator/superadmin vakolatlari va vaqtinchalik bloklar;
+- Telegram webhook maxfiy tokeni, Docker, Railway health-check va GitHub security CI.
 
 ## Texnologiyalar
 
@@ -67,6 +69,13 @@ avtomatik build qilinadi.
 | `MODERATION_CHAT_ID` | Yopiq moderatorlar guruhi ID si |
 | `WEBHOOK_SECRET` | Tasodifiy, faqat `A-Z a-z 0-9 _ -` belgili maxfiy qiymat |
 | `APP_MODE` | Railway uchun `webhook` |
+| `WEBHOOK_MAX_CONNECTIONS` | Telegram parallel ulanishlari, standart `10` |
+| `USER_UPDATE_LIMIT` | Bir foydalanuvchi uchun bir oynadagi update limiti |
+| `GLOBAL_UPDATE_LIMIT` | Butun bot uchun bir oynadagi update limiti |
+| `RATE_LIMIT_WINDOW_SECONDS` | Rate limit oynasi, standart `60` soniya |
+| `IDENTITY_RETENTION_DAYS` | Muallif bog‘lanishini saqlash muddati, standart `90` kun |
+| `REJECTED_CONTENT_RETENTION_DAYS` | Rad etilgan kontent muddati, standart `30` kun |
+| `AUDIT_RETENTION_DAYS` | Audit muddati, standart `365` kun |
 
 Railway public domain yaratilganda `RAILWAY_PUBLIC_DOMAIN` avtomatik o‘qiladi. Agar
 bu variable mavjud bo‘lmasa, `WEBHOOK_BASE_URL=https://sizning-domeningiz` kiriting.
@@ -114,8 +123,17 @@ Botning private chatida:
 /admin
 ```
 
-Standart holatda postlar va anonim kommentlar moderator tasdig‘idan o‘tadi. Admin
-paneldan `manual`, `auto` yoki `hybrid` rejimiga o‘zgartirish mumkin.
+Standart holatda postlar va anonim kommentlar moderator tasdig‘idan o‘tadi. Faqat
+superadmin `manual`, `auto` yoki `hybrid` rejimiga o‘zgartira oladi va o‘zgarish alohida
+tasdiqlanadi. Xavfsizlik filtri barcha rejimlarda ishlaydi: shubhali havola, taqiqlangan
+so‘z va PDF avtomatik rejimda ham moderatorga yuboriladi. `hybrid` rejimida barcha media
+ham tekshiriladi.
+
+Rollar:
+
+- `moderator` — navbatni olish, tasdiqlash, rad etish, tahrirlash va muallifga savol;
+- `senior_moderator` — moderator vakolatlari va 1/7 kunlik yoki doimiy bloklash;
+- `superadmin` — barcha vakolatlar, rejimlar, filtrlar, kategoriyalar va adminlar.
 
 ## Maxfiylik modeli
 
@@ -128,16 +146,26 @@ Bot javob yuborish, rate limit va bloklash uchun uni bazada saqlaydi. Shu sabab 
 nisbatan mutlaq anonim deb emas. Tayyor siyosat matni:
 [docs/PRIVACY_POLICY_UZ.md](docs/PRIVACY_POLICY_UZ.md).
 
+Foydalanuvchi menyudan o‘z bazadagi ma’lumotlarini o‘chira oladi. Retention vazifasi
+eski kontent va muallif bog‘lanishlarini avtomatik redakt qiladi. Telegram kanalida
+allaqachon chop etilgan xabarlar bu jarayon orqali Telegram’dan o‘chirilmaydi.
+
 ## Xavfsizlik
 
 - `.env` Git’ga kiritilmaydi.
 - Token va parollar faqat Railway Variables’da saqlanadi.
 - Webhook so‘rovlari `X-Telegram-Bot-Api-Secret-Token` orqali tekshiriladi.
+- Secret kamida 32 belgidan iborat bo‘lishi shart.
+- Takroriy Telegram `update_id` bir marta qayta ishlanadi.
+- Webhook body, parallel ulanish va update tezligi cheklangan.
 - Moderator callback’lari har safar server tomonda avtorizatsiyadan o‘tadi.
 - Deep-link’da ochiq post ID o‘rniga tasodifiy token ishlatiladi.
 - SQL so‘rovlari SQLAlchemy parametrizatsiyasi orqali bajariladi.
+- Faqat 10 MB gacha PDF hujjat qabul qilinadi; boshqa hujjatlar rad etiladi.
+- CI `pytest`, `ruff`, `pip-audit`, Trivy va CodeQL tekshiruvlarini bajaradi.
 
 Bot tokeni ochilib qolsa, darhol BotFather orqali bekor qilib yangisini yarating.
+Production sozlamalari: [docs/SECURITY_DEPLOYMENT_UZ.md](docs/SECURITY_DEPLOYMENT_UZ.md).
 
 ## Test va lint
 
@@ -145,4 +173,3 @@ Bot tokeni ochilib qolsa, darhol BotFather orqali bekor qilib yangisini yarating
 .venv\Scripts\python.exe -m pytest
 .venv\Scripts\python.exe -m ruff check .
 ```
-

@@ -13,10 +13,9 @@ COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
 
-RUN pip install --upgrade pip && pip install .
+RUN python -m pip install --upgrade pip==26.2.1 && python -m pip install .
 
 USER bot
 
 EXPOSE 8000
 CMD ["python", "-m", "app.start"]
-

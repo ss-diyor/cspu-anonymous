@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from html import escape
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -14,6 +14,8 @@ from app.config import Settings
 from app.keyboards import (
     admin_menu,
     categories_admin_menu,
+    confirm_category_change,
+    confirm_mode_change,
     confirm_remove_moderator,
     moderators_menu,
     modes_menu,
@@ -29,7 +31,10 @@ from app.models import (
 )
 from app.services.store import (
     audit,
+    clear_session,
+    get_session,
     get_setting,
+    has_admin_role,
     is_admin,
     is_superadmin,
     set_session,
@@ -47,6 +52,28 @@ async def _authorized(
     if await is_admin(db, settings, callback.from_user.id):
         return True
     await callback.answer("Bu amal faqat administratorlar uchun.", show_alert=True)
+    return False
+
+
+async def _superadmin_authorized(
+    callback: CallbackQuery,
+    db: AsyncSession,
+    settings: Settings,
+) -> bool:
+    if await is_superadmin(db, settings, callback.from_user.id):
+        return True
+    await callback.answer("Bu sozlama faqat superadmin uchun.", show_alert=True)
+    return False
+
+
+async def _senior_authorized(
+    callback: CallbackQuery,
+    db: AsyncSession,
+    settings: Settings,
+) -> bool:
+    if await has_admin_role(db, settings, callback.from_user.id, "senior_moderator"):
+        return True
+    await callback.answer("Bu amal senior moderator yoki superadmin uchun.", show_alert=True)
     return False
 
 
@@ -192,15 +219,15 @@ async def modes(
     settings: Settings,
 ) -> None:
     async with session_factory() as db:
-        if not await _authorized(callback, db, settings):
+        if not await _superadmin_authorized(callback, db, settings):
             return
         post_mode = await get_setting(db, "post_moderation_mode", "manual")
         reply_mode = await get_setting(db, "reply_moderation_mode", "manual")
     await callback.message.edit_text(
         "<b>Moderatsiya rejimlari</b>\n\n"
         "Moderator — har bir xabar tekshiriladi.\n"
-        "Avtomatik — xabar darhol chiqadi.\n"
-        "Gibrid — havola yoki taqiqlangan so‘z bo‘lsa tekshiriladi.",
+        "Avtomatik — xavfsiz xabar darhol chiqadi; filtrlangan xabar tekshiriladi.\n"
+        "Gibrid — media, havola yoki filtrlangan matn tekshiriladi.",
         reply_markup=modes_menu(post_mode, reply_mode),
     )
     await callback.answer()
@@ -213,20 +240,57 @@ async def cycle_mode(
     settings: Settings,
 ) -> None:
     target = callback.data.rsplit(":", 1)[1]
-    key = "post_moderation_mode" if target == "post" else "reply_moderation_mode"
     choices = ("manual", "auto", "hybrid")
-    async with session_factory() as db, db.begin():
-        if not await _authorized(callback, db, settings):
+    key = "post_moderation_mode" if target == "post" else "reply_moderation_mode"
+    async with session_factory() as db:
+        if not await _superadmin_authorized(callback, db, settings):
             return
         current = await get_setting(db, key, "manual")
         value = (
             choices[(choices.index(current) + 1) % len(choices)] if current in choices else "manual"
         )
+    labels = {"manual": "Moderator", "auto": "Avtomatik", "hybrid": "Gibrid"}
+    await callback.message.edit_text(
+        f"<b>Muhim sozlama</b>\n\n{target} rejimini "
+        f"<b>{labels[value]}</b> holatiga o‘zgartirishni tasdiqlaysizmi?",
+        reply_markup=confirm_mode_change(target, value),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:confirm_mode:"))
+async def confirm_moderation_mode(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    _, _, target, value = callback.data.split(":", 3)
+    if target not in {"post", "reply"} or value not in {"manual", "auto", "hybrid"}:
+        await callback.answer("Noto‘g‘ri sozlama.", show_alert=True)
+        return
+    key = "post_moderation_mode" if target == "post" else "reply_moderation_mode"
+    async with session_factory() as db, db.begin():
+        if not await _superadmin_authorized(callback, db, settings):
+            return
         await set_setting(db, key, value, callback.from_user.id)
         post_mode = await get_setting(db, "post_moderation_mode", "manual")
         reply_mode = await get_setting(db, "reply_moderation_mode", "manual")
-    await callback.message.edit_reply_markup(reply_markup=modes_menu(post_mode, reply_mode))
-    await callback.answer("Rejim o‘zgartirildi")
+    for admin_id in settings.superadmin_ids:
+        if admin_id == callback.from_user.id:
+            continue
+        try:
+            await bot.send_message(
+                admin_id,
+                f"⚠️ Moderatsiya sozlamasi o‘zgardi: {target} = {value}. "
+                f"Amalni bajargan: <code>{callback.from_user.id}</code>",
+            )
+        except Exception:
+            continue
+    await callback.message.edit_text(
+        "Rejim o‘zgartirildi.", reply_markup=modes_menu(post_mode, reply_mode)
+    )
+    await callback.answer("Tasdiqlandi")
 
 
 @router.callback_query(F.data == "admin:categories")
@@ -236,7 +300,7 @@ async def categories(
     settings: Settings,
 ) -> None:
     async with session_factory() as db:
-        if not await _authorized(callback, db, settings):
+        if not await _superadmin_authorized(callback, db, settings):
             return
         items = list((await db.scalars(select(Category).order_by(Category.sort_order))).all())
     await callback.message.edit_text(
@@ -253,10 +317,33 @@ async def toggle_category(
     settings: Settings,
 ) -> None:
     category_id = int(callback.data.rsplit(":", 1)[1])
-    async with session_factory() as db, db.begin():
-        if not await _authorized(callback, db, settings):
+    async with session_factory() as db:
+        if not await _superadmin_authorized(callback, db, settings):
             return
         category = await db.get(Category, category_id)
+        if not category:
+            await callback.answer("Kategoriya topilmadi.", show_alert=True)
+            return
+        title = category.title
+        action = "o‘chirish" if category.enabled else "yoqish"
+    await callback.message.edit_text(
+        f"<b>Muhim sozlama</b>\n\n{escape(title)} kategoriyasini {action}ni tasdiqlaysizmi?",
+        reply_markup=confirm_category_change(category_id),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:confirm_category:"))
+async def confirm_category_toggle(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    category_id = int(callback.data.rsplit(":", 1)[1])
+    async with session_factory() as db, db.begin():
+        if not await _superadmin_authorized(callback, db, settings):
+            return
+        category = await db.get(Category, category_id, with_for_update=True)
         if not category:
             await callback.answer("Kategoriya topilmadi.", show_alert=True)
             return
@@ -270,7 +357,10 @@ async def toggle_category(
             {"enabled": category.enabled},
         )
         items = list((await db.scalars(select(Category).order_by(Category.sort_order))).all())
-    await callback.message.edit_reply_markup(reply_markup=categories_admin_menu(items))
+    await callback.message.edit_text(
+        "<b>Kategoriyalar</b>\nKategoriya ustiga bosib yoqing yoki o‘chiring.",
+        reply_markup=categories_admin_menu(items),
+    )
     await callback.answer("O‘zgartirildi")
 
 
@@ -316,7 +406,9 @@ async def add_moderator_prompt(
             settings.session_ttl_minutes,
         )
     await callback.message.answer(
-        "Yangi moderatorning Telegram ID raqamini yuboring. "
+        "Telegram ID va rolni yuboring. Masalan:\n"
+        "<code>123456789 moderator</code> yoki "
+        "<code>123456789 senior_moderator</code>.\n\n"
         "U avval botga /start yuborgan bo‘lishi kerak."
     )
     await callback.answer()
@@ -370,7 +462,7 @@ async def filters(
     settings: Settings,
 ) -> None:
     async with session_factory() as db, db.begin():
-        if not await _authorized(callback, db, settings):
+        if not await _superadmin_authorized(callback, db, settings):
             return
         words = await get_setting(db, "banned_words", "")
         await set_session(
@@ -389,6 +481,51 @@ async def filters(
     await callback.answer()
 
 
+@router.callback_query(F.data == "admin:confirm_filters")
+async def confirm_filters(
+    callback: CallbackQuery,
+    bot: Bot,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    async with session_factory() as db, db.begin():
+        if not await _superadmin_authorized(callback, db, settings):
+            return
+        current = await get_session(db, callback.from_user.id, lock=True)
+        if not current or current.state != "confirm_banned_words":
+            await callback.answer("Tasdiqlash muddati tugagan.", show_alert=True)
+            return
+        value = str(current.payload.get("value", ""))
+        await set_setting(db, "banned_words", value, callback.from_user.id)
+        await clear_session(db, callback.from_user.id)
+    for admin_id in settings.superadmin_ids:
+        if admin_id == callback.from_user.id:
+            continue
+        try:
+            await bot.send_message(
+                admin_id,
+                f"⚠️ So‘z filtri yangilandi. Amalni bajargan: <code>{callback.from_user.id}</code>",
+            )
+        except Exception:
+            continue
+    await callback.message.edit_text("✅ So‘z filtri yangilandi.", reply_markup=admin_menu())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:cancel_setting")
+async def cancel_setting(
+    callback: CallbackQuery,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: Settings,
+) -> None:
+    async with session_factory() as db, db.begin():
+        if not await _superadmin_authorized(callback, db, settings):
+            return
+        await clear_session(db, callback.from_user.id)
+    await callback.message.edit_text("O‘zgarish bekor qilindi.", reply_markup=admin_menu())
+    await callback.answer()
+
+
 @router.callback_query(F.data == "admin:blocked")
 async def blocked_users(
     callback: CallbackQuery,
@@ -396,7 +533,7 @@ async def blocked_users(
     settings: Settings,
 ) -> None:
     async with session_factory() as db:
-        if not await _authorized(callback, db, settings):
+        if not await _senior_authorized(callback, db, settings):
             return
         users = list(
             (
@@ -435,7 +572,7 @@ async def unban_user(
 ) -> None:
     anon_code = callback.data.rsplit(":", 1)[1]
     async with session_factory() as db, db.begin():
-        if not await _authorized(callback, db, settings):
+        if not await _senior_authorized(callback, db, settings):
             return
         user = await db.scalar(select(User).where(User.anon_code == anon_code))
         if not user:
@@ -445,6 +582,7 @@ async def unban_user(
         user.is_banned = False
         user.banned_until = None
         user.ban_reason = None
+        user.violation_count = 0
         await audit(db, callback.from_user.id, "user.unbanned", "user", code)
     await callback.answer(f"{code} blokdan chiqarildi", show_alert=True)
     await callback.message.edit_text("Foydalanuvchi blokdan chiqarildi.", reply_markup=admin_menu())

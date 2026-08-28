@@ -26,11 +26,13 @@ async def resolve_bot_username(bot: Bot, settings: Settings) -> str:
     return me.username
 
 
-async def notify_user(bot: Bot, user_id: int, text: str, reply_markup=None) -> None:
+async def notify_user(bot: Bot, user_id: int | None, text: str, reply_markup=None) -> None:
+    if user_id is None:
+        return
     try:
         await bot.send_message(user_id, text, reply_markup=reply_markup)
     except (TelegramForbiddenError, TelegramBadRequest):
-        logger.info("Could not notify user %s", user_id)
+        logger.info("Could not notify anonymous user")
 
 
 async def send_submission_to_moderation(
@@ -41,8 +43,17 @@ async def send_submission_to_moderation(
 ) -> None:
     category = await session.get(Category, submission.category_id)
     bot_username = await resolve_bot_username(bot, settings)
+    flag_lines: list[str] = []
+    reasons = (submission.review_flags or {}).get("reasons", [])
+    matched = (submission.review_flags or {}).get("matched_words", [])
+    if reasons:
+        flag_lines.append("Tekshiruv: " + ", ".join(reasons))
+    if matched:
+        flag_lines.append("Filtr: " + ", ".join(matched))
+    flag_text = "\n" + "\n".join(flag_lines) if flag_lines else ""
     prefix = (
-        f"<b>Yangi anonim xabar #{submission.id}</b>\nKategoriya: {category.emoji} {category.title}"
+        f"<b>Yangi anonim xabar #{submission.id}</b>\n"
+        f"Kategoriya: {category.emoji} {category.title}{flag_text}"
     )
     message = await send_content(
         bot,
@@ -123,7 +134,17 @@ async def send_reply_to_moderation(
     settings: Settings,
     reply: AnonymousReply,
 ) -> None:
-    prefix = f"<b>Yangi anonim komment #{reply.id}</b>\nKanal posti: #{reply.submission_id}"
+    flag_lines: list[str] = []
+    reasons = (reply.review_flags or {}).get("reasons", [])
+    matched = (reply.review_flags or {}).get("matched_words", [])
+    if reasons:
+        flag_lines.append("Tekshiruv: " + ", ".join(reasons))
+    if matched:
+        flag_lines.append("Filtr: " + ", ".join(matched))
+    flag_text = "\n" + "\n".join(flag_lines) if flag_lines else ""
+    prefix = (
+        f"<b>Yangi anonim komment #{reply.id}</b>\nKanal posti: #{reply.submission_id}{flag_text}"
+    )
     message = await send_content(
         bot,
         settings.moderation_chat_id,

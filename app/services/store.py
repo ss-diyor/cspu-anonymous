@@ -69,6 +69,23 @@ async def is_superadmin(session: AsyncSession, settings: Settings, telegram_id: 
     return bool(admin and admin.role == "superadmin")
 
 
+async def has_admin_role(
+    session: AsyncSession,
+    settings: Settings,
+    telegram_id: int,
+    minimum_role: str,
+) -> bool:
+    levels = {"moderator": 10, "senior_moderator": 20, "superadmin": 30}
+    if telegram_id in settings.superadmin_ids:
+        role = "superadmin"
+    else:
+        admin = await session.get(Admin, telegram_id)
+        if not admin:
+            return False
+        role = admin.role
+    return levels.get(role, 0) >= levels.get(minimum_role, 999)
+
+
 async def get_setting(session: AsyncSession, key: str, default: str = "") -> str:
     setting = await session.get(BotSetting, key)
     return setting.value if setting else default

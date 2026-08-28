@@ -4,6 +4,7 @@ from app.models import User
 from app.security import (
     content_fingerprint,
     make_token,
+    parse_banned_words,
     requires_review,
     user_is_banned,
     valid_token,
@@ -27,6 +28,18 @@ def test_hybrid_review_rule() -> None:
     assert requires_review("Sayt: https://example.com", [])
     assert requires_review("Bu yerda reklama bor", ["reklama"])
     assert not requires_review("Oddiy talabalar savoli", ["reklama"])
+    assert requires_review("r.e.k.l.a.m.a beramiz", ["reklama"])
+    assert requires_review("reeeklama beramiz", ["reklama"])
+    assert requires_review("reklаma", ["reklama"])  # final a is Cyrillic
+    assert requires_review("example.com sahifasiga kiring", [])
+
+
+def test_banned_word_list_accepts_commas_semicolons_and_lines() -> None:
+    assert parse_banned_words("reklama, haqorat\nkazino; reklama") == [
+        "reklama",
+        "haqorat",
+        "kazino",
+    ]
 
 
 def test_temporary_ban_expires() -> None:
