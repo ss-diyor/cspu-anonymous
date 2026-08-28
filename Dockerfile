@@ -17,11 +17,9 @@ COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
 
-RUN python -m pip install --upgrade \
-        pip==26.2.1 \
-        setuptools==78.1.1 \
-        msgpack==1.2.1 \
-    && python -m pip install .
+RUN python -m pip install --upgrade pip==26.2.1 \
+    && python -m pip install . \
+    && python -m pip uninstall -y msgpack wheel setuptools pip
 
 USER bot
 
