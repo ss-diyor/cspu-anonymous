@@ -1,4 +1,4 @@
-# Chirchiq Anonymous Bot
+# CSPU Anonymous Bot
 
 Chirchiq davlat pedagogika universiteti kanali uchun anonim xabar, moderatsiya va
 kanal postlariga anonim komment yuborish boti.
