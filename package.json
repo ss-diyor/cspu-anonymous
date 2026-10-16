@@ -1,0 +1,14 @@
+{
+  "name": "cspu-anonymous-serverless",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@tgcloud/cli": "^0.2.0"
+  },
+  "scripts": {
+    "deploy": "tgcloud push",
+    "status": "tgcloud status",
+    "run": "tgcloud run",
+    "check": "node --check tgcloud/schema.js && node --check tgcloud/lib/config.js && node --check tgcloud/lib/ui.js && node --check tgcloud/lib/store.js && node --check tgcloud/handlers/message.js && node --check tgcloud/handlers/callback_query.js"
+  }
+}

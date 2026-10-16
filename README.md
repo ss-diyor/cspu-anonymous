@@ -173,3 +173,12 @@ Production sozlamalari: [docs/SECURITY_DEPLOYMENT_UZ.md](docs/SECURITY_DEPLOYMEN
 .venv\Scripts\python.exe -m pytest
 .venv\Scripts\python.exe -m ruff check .
 ```
+
+## Telegram Serverless MVP
+
+`feat/telegram-serverless-mvp` branchida botning text-only anonim xabar oqimi
+Telegram Serverless uchun JavaScript’da qayta yozilgan. Kategoriya tanlash,
+preview, moderatorlar guruhiga yuborish va tasdiqlangandan keyin kanalga
+anonim post qilish oqimi saqlangan.
+
+Tafsilotlar va ishga tushirish: [TELEGRAM_SERVERLESS.md](TELEGRAM_SERVERLESS.md).
