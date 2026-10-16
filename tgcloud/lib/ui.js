@@ -23,21 +23,32 @@ export function categoryMenu(categories) {
   };
 }
 
-export function previewMenu() {
+export function previewMenu(kind = 'submission') {
+  const comment = kind === 'comment';
   return {
     inline_keyboard: [
-      [{ text: '✅ Moderatsiyaga yuborish', callback_data: 'draft:submit' }],
-      [{ text: '🔄 Qayta yozish', callback_data: 'draft:rewrite' }],
+      [{ text: comment ? '✅ Anonim yuborish' : '✅ Moderatsiyaga yuborish', callback_data: comment ? 'comment:submit' : 'draft:submit' }],
+      [{ text: '🔄 Qayta yozish', callback_data: comment ? 'comment:rewrite' : 'draft:rewrite' }],
       [{ text: '❌ Bekor qilish', callback_data: 'user:cancel' }],
     ],
   };
 }
 
-export function moderationMenu(id) {
+export function moderationMenu(id, kind = 'submission') {
+  const prefix = kind === 'reply' ? 'reply' : 'moderation';
   return {
     inline_keyboard: [[
-      { text: '✅ Tasdiqlash', callback_data: `moderation:approve:${id}` },
-      { text: '❌ Rad etish', callback_data: `moderation:reject:${id}` },
+      { text: '✅ Tasdiqlash', callback_data: `${prefix}:approve:${id}` },
+      { text: '❌ Rad etish', callback_data: `${prefix}:reject:${id}` },
     ]],
+  };
+}
+
+export function anonymousCommentButton(botUsername, commentToken) {
+  return {
+    inline_keyboard: [[{
+      text: '✍️ Anonim javob yozish',
+      url: `https://t.me/${botUsername.replace(/^@/, '')}?start=comment_${commentToken}`,
+    }]],
   };
 }

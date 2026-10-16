@@ -31,12 +31,31 @@ export const submissions = table('submissions', {
   userId: integer('user_id').notNull(),
   categoryId: integer('category_id').notNull(),
   text: text('text').notNull(),
+  // Existing published rows may predate anonymous comments, so this is nullable.
+  commentToken: text('comment_token').unique(),
   status: text('status').notNull().default('pending'),
   moderationMessageId: integer('moderation_message_id'),
   channelMessageId: integer('channel_message_id'),
+  discussionMessageId: integer('discussion_message_id'),
   createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
   reviewedAt: integer('reviewed_at', { mode: 'timestamp' }),
 }, (t) => ({
   statusCreated: index('idx_submissions_status_created').on(t.status, t.createdAt),
   userCreated: index('idx_submissions_user_created').on(t.userId, t.createdAt),
+  channelMessage: index('idx_submissions_channel_message').on(t.channelMessageId),
+}));
+
+export const anonymousReplies = table('anonymous_replies', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  submissionId: integer('submission_id').notNull(),
+  userId: integer('user_id').notNull(),
+  text: text('text').notNull(),
+  status: text('status').notNull().default('pending'),
+  moderationMessageId: integer('moderation_message_id'),
+  discussionMessageId: integer('discussion_message_id'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  reviewedAt: integer('reviewed_at', { mode: 'timestamp' }),
+}, (t) => ({
+  statusCreated: index('idx_replies_status_created').on(t.status, t.createdAt),
+  submissionCreated: index('idx_replies_submission_created').on(t.submissionId, t.createdAt),
 }));

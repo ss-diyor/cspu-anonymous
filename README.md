@@ -179,6 +179,7 @@ Production sozlamalari: [docs/SECURITY_DEPLOYMENT_UZ.md](docs/SECURITY_DEPLOYMEN
 `feat/telegram-serverless-mvp` branchida botning text-only anonim xabar oqimi
 Telegram Serverless uchun JavaScript’da qayta yozilgan. Kategoriya tanlash,
 preview, moderatorlar guruhiga yuborish va tasdiqlangandan keyin kanalga
-anonim post qilish oqimi saqlangan.
+anonim post qilish oqimi saqlangan. Kanal postlari `#raqam` bilan chiqadi va
+discussion chatida anonim javob yozish deep-link tugmasi paydo bo‘ladi.
 
 Tafsilotlar va ishga tushirish: [TELEGRAM_SERVERLESS.md](TELEGRAM_SERVERLESS.md).
