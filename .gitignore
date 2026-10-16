@@ -16,3 +16,5 @@ build/
 *.db
 work/
 outputs/
+node_modules/
+.tgcloud/
