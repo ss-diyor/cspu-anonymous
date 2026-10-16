@@ -32,7 +32,9 @@ export const submissions = table('submissions', {
   categoryId: integer('category_id').notNull(),
   text: text('text').notNull(),
   // Existing published rows may predate anonymous comments, so this is nullable.
-  commentToken: text('comment_token').unique(),
+  // Uniqueness is enforced by the generated token and lookup logic; SQLite cannot
+  // add a UNIQUE column with ALTER TABLE during an in-place migration.
+  commentToken: text('comment_token'),
   status: text('status').notNull().default('pending'),
   moderationMessageId: integer('moderation_message_id'),
   channelMessageId: integer('channel_message_id'),
